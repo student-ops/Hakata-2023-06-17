@@ -41,29 +41,24 @@ type Tests struct {
 func (h *MyHandler) LlamaChat(w http.ResponseWriter, r *http.Request) {
 	var requestPayload RequestPayload
 
-	// Parse request body
 	err := json.NewDecoder(r.Body).Decode(&requestPayload)
 	if err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	// Encode payload to json
 	payloadBytes, err := json.Marshal(requestPayload)
 	if err != nil {
 		http.Error(w, "Error encoding payload", http.StatusInternalServerError)
 		return
 	}
 
-	// Forward the request to Python API
 	resp, err := http.Post(h.Python_url, "application/json", bytes.NewReader(payloadBytes))
 	if err != nil {
 		http.Error(w, "Error from Python API", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
-
-	// Set headers
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -74,33 +69,41 @@ func (h *MyHandler) LlamaChat(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		n, err := resp.Body.Read(buf)
-		if err != nil && err != io.EOF {
-			http.Error(w, "Error reading from Python API", http.StatusInternalServerError)
-			return
+		if err != nil {
+			if err != io.EOF {
+				http.Error(w, "Error reading from Python API", http.StatusInternalServerError)
+				return
+			}
+			break
 		}
 		if n == 0 {
 			break
 		}
 
-		responseBuffer += string(buf[:n]) // Add the bytes into a response buffer
+		responseBuffer += string(buf[:n])
 
-		// If the response buffer is above a certain size, send the response and reset the buffer
 		if len(responseBuffer) > 10 {
 			test.Answer = responseBuffer
 
-			// Encode and write the Tests struct as a response
 			if err := json.NewEncoder(w).Encode(test); err != nil {
 				http.Error(w, "Error encoding response", http.StatusInternalServerError)
 				return
 			}
 
-			// Reset the response buffer
 			responseBuffer = ""
 		}
 
-		// Flush the response writer
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
+		}
+	}
+
+	if len(responseBuffer) > 0 {
+		test.Answer = responseBuffer
+
+		if err := json.NewEncoder(w).Encode(test); err != nil {
+			http.Error(w, "Error encoding response", http.StatusInternalServerError)
+			return
 		}
 	}
 }
